@@ -1,0 +1,90 @@
+﻿using System;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.XR;
+
+[RequireComponent(typeof(CharacterController))]
+public class playerMovement : MonoBehaviour
+{
+
+    Rigidbody rb;
+    [SerializeField] private Camera playerCamara;
+    [SerializeField] private GameObject ground;
+
+    [SerializeField] private float speed;
+    [SerializeField] private float lookSpeed;
+    [SerializeField] private float lookXLimit;
+    [SerializeField] private float bobAmount;
+    [SerializeField] private float bobSpeed;
+    private bool isBobing => Input.GetAxis("Vertical") != 0 || Input.GetAxis("Horizontal") != 0;
+    private float timer = 0f;
+    private float rotationX = 0;
+    private float defaultYPos;
+
+
+    void Start()
+    {
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+
+        bobAmount = 0.1f;
+        bobSpeed = 10f;
+        defaultYPos = playerCamara.transform.position.y;
+    }
+
+    void Awake()
+    {
+        rb = GetComponent<Rigidbody>();
+    }
+
+
+    void FixedUpdate()
+    {
+        #region Handle Movement
+        Vector3 forward = transform.TransformDirection(Vector3.forward);
+        Vector3 right = transform.TransformDirection(Vector3.right);
+        float vertical = Input.GetAxis("Vertical");
+
+        if (Input.GetAxis("Vertical") > 0)
+        {
+            vertical = Input.GetAxis("Vertical");
+        } else if (Input.GetAxis("Vertical") < 0)
+        {
+            vertical = Input.GetAxis("Vertical") * 0.5f;
+        }
+
+            float curSpeedX = speed * vertical;
+        float curSpeedY = speed * Input.GetAxis("Horizontal") * 0.5f;
+        Vector3 moveDirection = (forward * curSpeedX) + (right * curSpeedY);
+        rb.MovePosition(rb.position + moveDirection * speed * Time.fixedDeltaTime);
+        #endregion
+
+        #region Handles Rotation
+        rotationX += -Input.GetAxis("Mouse Y") * lookSpeed;
+        rotationX = Mathf.Clamp(rotationX, -lookXLimit, lookXLimit);
+        playerCamara.transform.localRotation = Quaternion.Euler(rotationX, 0, 0);
+        transform.rotation *= Quaternion.Euler(0, Input.GetAxis("Mouse X") * lookSpeed, 0);
+        #endregion
+
+        #region Handle Camara
+        if (isBobing)
+        {
+            timer += Time.deltaTime * bobSpeed;
+            float newY = defaultYPos + Mathf.Sin(timer) * bobAmount;
+            playerCamara.transform.localPosition = new Vector3(playerCamara.transform.localPosition.x, newY, playerCamara.transform.localPosition.z);
+        }
+        else
+        {
+            playerCamara.transform.localPosition = Vector3.Lerp(
+                playerCamara.transform.localPosition,
+                new Vector3(playerCamara.transform.localPosition.x, defaultYPos, playerCamara.transform.localPosition.z),
+                Time.deltaTime * bobSpeed
+            );
+            timer = 0f;
+        }
+        #endregion
+
+        rb.constraints = RigidbodyConstraints.FreezeRotation;
+    }
+}
