@@ -1,43 +1,120 @@
-
 using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
 
-public class FirstPersonController : MonoBehaviour
+public class PlayerCombat : MonoBehaviour
 {
-    public float speed = 5f;
-    public float mouseSensitivity = 2f;
+    [Header("Movement")]
+    public float punchForwardForce = 1f;
+    public float kickForwardForce = 1.5f;
+    public float returnSpeed = 5f;
 
-    private CharacterController controller;
-    [SerializeField] private Camera cam;
-    private float verticalLookRotation;
+    [Header("Ground Check")]
+    public Transform groundCheck;
+    public float groundDistance = 0.1f;
+    public LayerMask groundMask;
+
+    private Animator animator;
+    private Rigidbody rb;
+
+    // Internal state
+    private Vector3 originalPosition;
+    private Quaternion originalRotation;
+    private bool returningToOriginal = false;
+
+    // Queue for attack animations
+    private Queue<string> attackQueue = new Queue<string>();
+    private bool isAttacking = false;
 
     void Start()
     {
-        controller = GetComponent<CharacterController>();
-        Cursor.lockState = CursorLockMode.Locked; // lock cursor
+        animator = GetComponent<Animator>();
+        rb = GetComponent<Rigidbody>();
+
+        animator.applyRootMotion = false;
     }
 
     void Update()
     {
-        // --- Movement ---
-        float x = Input.GetAxis("Horizontal");
-        float z = Input.GetAxis("Vertical");
+        if (IsGrounded())
+        {
+            // Queue punch
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                attackQueue.Enqueue("Punch");
+                if (!isAttacking) StartCoroutine(ProcessAttackQueue());
+            }
 
-        Vector3 move = transform.right * x + transform.forward * z;
-        controller.Move(move * speed * Time.deltaTime);
+            // Queue kick
+            if (Input.GetKeyDown(KeyCode.K))
+            {
+                attackQueue.Enqueue("Kick");
+                if (!isAttacking) StartCoroutine(ProcessAttackQueue());
+            }
+        }
+    }
 
+    void FixedUpdate()
+    {
+        // Keep Y velocity stable
+        rb.linearVelocity = new Vector3(rb.linearVelocity.x, rb.linearVelocity.y, rb.linearVelocity.z);
 
-        // --- Mouse Look ---
-        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
-        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+        // Smoothly return to original position after animation
+        if (returningToOriginal)
+        {
+            rb.MovePosition(Vector3.Lerp(rb.position, originalPosition, Time.fixedDeltaTime * returnSpeed));
+            rb.MoveRotation(Quaternion.Slerp(rb.rotation, originalRotation, Time.fixedDeltaTime * returnSpeed));
 
-        // Rotate character horizontally
-        transform.Rotate(Vector3.up * mouseX);
+            if (Vector3.Distance(rb.position, originalPosition) < 0.01f)
+                returningToOriginal = false;
+        }
+    }
 
-        // Rotate camera vertically
-        verticalLookRotation -= mouseY;
-        verticalLookRotation = Mathf.Clamp(verticalLookRotation, -90f, 90f);
+    IEnumerator ProcessAttackQueue()
+    {
+        isAttacking = true;
 
-        cam.transform.localEulerAngles = new Vector3(verticalLookRotation, 0f, 0f);
+        while (attackQueue.Count > 0)
+        {
+            string attackName = attackQueue.Dequeue();
+            float forwardForce = attackName == "Punch" ? punchForwardForce : kickForwardForce;
+
+            yield return StartCoroutine(PlayCombatAnimation(attackName, forwardForce));
+        }
+
+        isAttacking = false;
+    }
+
+    IEnumerator PlayCombatAnimation(string triggerName, float forwardForce)
+    {
+        // Save position/rotation before attack
+        originalPosition = rb.position;
+        originalRotation = rb.rotation;
+        returningToOriginal = false;
+
+        animator.SetTrigger(triggerName);
+
+        // Move forward slightly during attack
+        float elapsed = 0f;
+        AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+        float animDuration = stateInfo.length;
+
+        while (elapsed < animDuration)
+        {
+            Vector3 forwardMove = transform.forward * forwardForce * Time.fixedDeltaTime;
+            rb.MovePosition(rb.position + forwardMove);
+
+            elapsed += Time.fixedDeltaTime;
+            yield return new WaitForFixedUpdate();
+        }
+
+        returningToOriginal = true;
+        yield return new WaitForSeconds(animDuration / 2); // optional buffer
+    }
+
+    bool IsGrounded()
+    {
+        return Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
     }
 }
 
